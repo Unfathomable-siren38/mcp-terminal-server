@@ -2,8 +2,8 @@
   "name": "mcp-terminal-server",
   "version": "0.1.0",
   "type": "module",
-  "private": true,
-  "description": "Terminal MCP App",
+  "description": "MCP server that renders interactive xterm.js terminals inline in Claude Code and Claude Desktop",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "terminal", "xterm", "pty", "claude"],
   "main": "dist/server.js",
   "bin": {
     "mcp-terminal-server": "dist/index.js"

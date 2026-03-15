@@ -30,6 +30,8 @@ Add to your MCP client configuration (stdio transport):
 
 ## Features
 
+- **Fully Interactive**: Users can type directly in the terminal — full keyboard input, shell interaction, and program control
+- **AI-Writable**: The LLM can send commands and input to terminal sessions via `terminal-write`, enabling AI-driven workflows
 - **Inline Terminal**: xterm.js terminal emulator with full xterm-256color support
 - **Multi-Session Tabs**: Create, switch, close, and customize terminal sessions
 - **Tab Customization**: Set names, colors, and icons per tab via LLM tools

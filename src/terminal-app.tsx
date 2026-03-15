@@ -1,6 +1,7 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import { FitAddon } from "@xterm/addon-fit";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -430,6 +431,8 @@ function TerminalPane({ app, sessionId, visible }: TerminalPaneProps) {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'Menlo', 'DejaVu Sans Mono', 'Courier New', monospace",
+      rescaleOverlappingGlyphs: true,
+      allowProposedApi: true,
       theme: {
         background: "#1e1e1e",
         foreground: "#d4d4d4",
@@ -438,6 +441,9 @@ function TerminalPane({ app, sessionId, visible }: TerminalPaneProps) {
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
+    const unicodeAddon = new UnicodeGraphemesAddon();
+    terminal.loadAddon(unicodeAddon);
+    terminal.unicode.activeVersion = "15-graphemes";
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 

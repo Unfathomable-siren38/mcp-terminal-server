@@ -506,20 +506,14 @@ function TerminalPane({ app, sessionId, visible }: TerminalPaneProps) {
     };
 
     let resizeTimer: ReturnType<typeof setTimeout>;
-    let lastResizeCols = 0;
-    let lastResizeRows = 0;
-    const sendResize = (cols: number, rows: number) => {
-      if (cols === lastResizeCols && rows === lastResizeRows) return;
-      lastResizeCols = cols;
-      lastResizeRows = rows;
-      app.callServerTool({
-        name: "terminal-resize",
-        arguments: { sessionId, cols, rows },
-      }).catch(() => {});
-    };
     terminal.onResize(({ cols, rows }) => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => sendResize(cols, rows), 50);
+      resizeTimer = setTimeout(() => {
+        app.callServerTool({
+          name: "terminal-resize",
+          arguments: { sessionId, cols, rows },
+        }).catch(() => {});
+      }, 50);
     });
 
     terminal.onData((data) => {

@@ -20,7 +20,7 @@ npm run serve:stdio  # Run server via stdio
 
 ## Architecture
 
-- `terminal-show` opens UI + spawns PTY session, returns `sessionId`
+- `terminal-show` opens UI + spawns PTY session(s), returns `{ sessions, height, width }`
 - `terminal-create` adds sessions without re-rendering UI (for additional tabs)
 - `terminal-write` sends input to PTY; omit data to poll output buffer (used by UI)
 - `terminal-read` returns ANSI-stripped history for LLM consumption

@@ -13,12 +13,13 @@
   ],
   "scripts": {
     "build": "tsc --noEmit && cross-env INPUT=terminal-app.html vite build && tsc -p tsconfig.server.json && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external && esbuild main.ts --bundle --platform=node --format=esm --outfile=dist/index.js --banner:js='#!/usr/bin/env node' --packages=external",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "prepare": "npm run build",
     "watch": "cross-env INPUT=terminal-app.html vite build --watch",
     "serve:stdio": "node dist/index.js --stdio",
     "start": "cross-env NODE_ENV=development npm run build && node dist/index.js",
     "start:stdio": "cross-env NODE_ENV=development npm run build 1>&2 && npm run serve:stdio",
-    "dev": "cross-env NODE_ENV=development concurrently \"npm run watch\" \"node dist/index.js\""
+    "dev": "cross-env NODE_ENV=development npm run build && concurrently \"npm run watch\" \"node dist/index.js\""
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.0",

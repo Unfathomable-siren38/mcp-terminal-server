@@ -1,7 +1,6 @@
 /**
  * Entry point for running the MCP server.
- * Run with: npx @modelcontextprotocol/server-basic-react
- * Or: node dist/index.js [--stdio]
+ * Run with: npm run serve:stdio (stdio) or npm run start (HTTP)
  */
 
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -12,13 +11,21 @@ import cors from "cors";
 import type { Request, Response } from "express";
 import { cleanup, createServer } from "./server.js";
 
+function onShutdown(beforeExit?: () => void): void {
+  const handler = () => {
+    console.log("\nShutting down...");
+    cleanup();
+    beforeExit?.();
+  };
+  process.on("SIGINT", handler);
+  process.on("SIGTERM", handler);
+}
+
 /**
  * Starts an MCP server with Streamable HTTP transport in stateless mode.
- *
- * @param createServer - Factory function that creates a new McpServer instance per request.
  */
 export async function startStreamableHTTPServer(
-  createServer: () => McpServer,
+  serverFactory: () => McpServer,
 ): Promise<void> {
   const port = parseInt(process.env.PORT ?? "3001", 10);
 
@@ -26,7 +33,7 @@ export async function startStreamableHTTPServer(
   app.use(cors());
 
   app.all("/mcp", async (req: Request, res: Response) => {
-    const server = createServer();
+    const server = serverFactory();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
@@ -51,43 +58,29 @@ export async function startStreamableHTTPServer(
     }
   });
 
-  const httpServer = app.listen(port, (err) => {
-    if (err) {
-      console.error("Failed to start server:", err);
-      process.exit(1);
-    }
+  const httpServer = app.listen(port, () => {
     console.log(`MCP server listening on http://localhost:${port}/mcp`);
   });
 
-  const shutdown = () => {
-    console.log("\nShutting down...");
-    cleanup();
-    httpServer.close(() => process.exit(0));
-  };
+  httpServer.on("error", (err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  onShutdown(() => httpServer.close(() => process.exit(0)));
 }
 
 /**
  * Starts an MCP server with stdio transport.
- *
- * @param createServer - Factory function that creates a new McpServer instance.
  */
 export async function startStdioServer(
-  createServer: () => McpServer,
+  serverFactory: () => McpServer,
 ): Promise<void> {
-  const shutdown = () => {
-    cleanup();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-
-  await createServer().connect(new StdioServerTransport());
+  onShutdown(() => process.exit(0));
+  await serverFactory().connect(new StdioServerTransport());
 }
 
-async function main() {
+async function main(): Promise<void> {
   if (process.argv.includes("--stdio")) {
     await startStdioServer(createServer);
   } else {

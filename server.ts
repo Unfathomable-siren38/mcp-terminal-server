@@ -20,6 +20,12 @@ const DIST_DIR = __filename.endsWith(".ts")
 const MAX_HISTORY = 100_000;
 const MAX_OUTPUT_BUFFER = 100_000;
 
+/** Append data to a buffer string, trimming to half of maxLen when exceeded. */
+function appendWithLimit(buffer: string, data: string, maxLen: number): string {
+  const result = buffer + data;
+  return result.length > maxLen ? result.slice(-maxLen / 2) : result;
+}
+
 interface TabStyle {
   name: string;   // custom display name, overrides dynamic title
   color: string;  // tab background color (CSS color string)
@@ -45,21 +51,44 @@ function withSession(sessionId: string, fn: (session: TerminalSession) => CallTo
 }
 
 // Regex to match OSC title sequences: \x1b]0;...\x07 and \x1b]2;...\x07
-const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07]*)\x07/g;
+// Supports both BEL (\x07) and ST (\x1b\) terminators
+const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 
-function spawnTerminal(command?: string, style?: Partial<TabStyle>, cwd?: string): { sessionId: string; label: string } {
+interface SpawnResult {
+  sessionId: string;
+  label: string;
+}
+
+function findShell(): string {
+  const candidates = [
+    process.env.SHELL,
+    "/bin/zsh",
+    "/bin/bash",
+    "/bin/sh",
+  ];
+  for (const sh of candidates) {
+    if (!sh) continue;
+    try { accessSync(sh, constants.X_OK); return sh; } catch {}
+  }
+  return "/bin/sh";
+}
+
+function spawnTerminal(command?: string, style?: Partial<TabStyle>, cwd?: string): SpawnResult {
   const sessionId = crypto.randomUUID();
-  const label = command || "bash";
+  const shell = findShell();
+  const label = command || path.basename(shell);
 
   let resolvedCwd = cwd || process.env.HOME || process.cwd();
   try { accessSync(resolvedCwd, constants.R_OK); } catch { resolvedCwd = process.cwd(); }
 
-  const proc = pty.spawn("bash", command ? ["-c", command] : [], {
+  const proc = pty.spawn(shell, command ? ["-c", command] : [], {
     name: "xterm-256color",
     cols: 80,
     rows: 24,
     cwd: resolvedCwd,
-    env: Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined)),
+    env: Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    ),
   });
 
   const session: TerminalSession = {
@@ -72,16 +101,9 @@ function spawnTerminal(command?: string, style?: Partial<TabStyle>, cwd?: string
   };
 
   proc.onData((data: string) => {
-    session.outputBuffer += data;
-    if (session.outputBuffer.length > MAX_OUTPUT_BUFFER) {
-      session.outputBuffer = session.outputBuffer.slice(-MAX_OUTPUT_BUFFER / 2);
-    }
-    session.history += data;
-    if (session.history.length > MAX_HISTORY) {
-      session.history = session.history.slice(-MAX_HISTORY / 2);
-    }
+    session.outputBuffer = appendWithLimit(session.outputBuffer, data, MAX_OUTPUT_BUFFER);
+    session.history = appendWithLimit(session.history, data, MAX_HISTORY);
 
-    // Parse OSC title sequences (use matchAll to avoid shared lastIndex state)
     for (const match of data.matchAll(OSC_TITLE_RE)) {
       session.title = match[1];
     }
@@ -103,17 +125,18 @@ interface TabConfig {
   icon?: string;
 }
 
-function spawnTabs(tabs?: Array<TabConfig>): Array<{ sessionId: string; label: string }> {
-  const configs = tabs?.length ? tabs : [{}];
-  return configs.map((c) => spawnTerminal(c.command, { name: c.name, color: c.color, icon: c.icon }, c.cwd));
+function spawnTabs(tabs?: Array<TabConfig>): SpawnResult[] {
+  return (tabs?.length ? tabs : [{}]).map((c) =>
+    spawnTerminal(c.command, { name: c.name, color: c.color, icon: c.icon }, c.cwd),
+  );
 }
 
 /** Kill all active PTY sessions. Call on server shutdown. */
-export function cleanup() {
-  for (const [id, session] of sessions) {
+export function cleanup(): void {
+  for (const [, session] of sessions) {
     try { session.process.kill(); } catch {}
-    sessions.delete(id);
   }
+  sessions.clear();
 }
 
 /**
@@ -167,7 +190,11 @@ export function createServer(): McpServer {
         if (data) {
           // In a PTY, Enter is \r (0x0D), not \n (0x0A).
           // LLMs naturally produce \n, so convert for correct behavior.
-          session.process.write(data.replace(/\n/g, "\r"));
+          try {
+            session.process.write(data.replace(/\n/g, "\r"));
+          } catch {
+            return { content: [{ type: "text", text: "Session process has exited" }], isError: true };
+          }
           pendingFocus = sessionId;
           return { content: [{ type: "text", text: "" }] };
         }
@@ -218,8 +245,10 @@ export function createServer(): McpServer {
         title: s.title,
         style: s.style,
       }));
+      // Return pendingFocus but let clients decide whether to consume it.
+      // The value is cleared here since terminal-list is the only consumer.
       const focus = pendingFocus;
-      pendingFocus = null;
+      if (focus) pendingFocus = null;
       return { content: [{ type: "text", text: JSON.stringify({ sessions: list, pendingFocus: focus }) }] };
     },
   );

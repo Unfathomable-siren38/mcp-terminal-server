@@ -1,22 +1,18 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
-import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 interface TabStyle {
-  // Must match server.ts TabStyle
   name: string;
   color: string;
   icon: string;
 }
 
 const DEFAULT_STYLE: TabStyle = { name: "", color: "", icon: "" };
-
-// Shared map so TerminalApp can reset a specific pane's xterm instance
-const terminalInstances = new Map<string, Terminal>();
 
 interface TabState {
   sessionId: string;
@@ -25,9 +21,13 @@ interface TabState {
   style: TabStyle;
 }
 
+interface ToolResult {
+  content?: Array<{ type: string; text: string }>;
+}
+
 function extractToolText(result: unknown): string {
-  return ((result as any)?.content as Array<{ type: string; text: string }>)
-    ?.find((c) => c.type === "text")?.text ?? "";
+  const content = (result as ToolResult)?.content;
+  return content?.find((c) => c.type === "text")?.text ?? "";
 }
 
 function TerminalApp() {
@@ -168,15 +168,13 @@ function TerminalApp() {
       } catch (e) {
         console.warn("close error:", e);
       }
-      setTabs((prev) => {
-        const next = prev.filter((t) => t.sessionId !== sessionId);
-        setActiveTab((currentActive) => {
-          if (currentActive !== sessionId) return currentActive;
-          const oldIdx = prev.findIndex((t) => t.sessionId === sessionId);
-          const newIdx = Math.min(oldIdx, next.length - 1);
-          return next[newIdx]?.sessionId ?? null;
-        });
-        return next;
+      setTabs((prev) => prev.filter((t) => t.sessionId !== sessionId));
+      setActiveTab((currentActive) => {
+        if (currentActive !== sessionId) return currentActive;
+        const remaining = tabs.filter((t) => t.sessionId !== sessionId);
+        const oldIdx = tabs.findIndex((t) => t.sessionId === sessionId);
+        const newIdx = Math.min(oldIdx, remaining.length - 1);
+        return remaining[newIdx]?.sessionId ?? null;
       });
     },
     [app],
@@ -242,6 +240,19 @@ function TerminalApp() {
   );
 }
 
+interface TabBarProps {
+  tabs: TabState[];
+  activeTab: string | null;
+  onSelectTab: (id: string) => void;
+  onCloseTab: (id: string) => void;
+  onNewTab: () => void;
+  onReset: () => void;
+  followMode: boolean;
+  onToggleFollowMode: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+}
+
 function TabBar({
   tabs,
   activeTab,
@@ -253,18 +264,7 @@ function TabBar({
   onToggleFollowMode,
   isFullscreen,
   onToggleFullscreen,
-}: {
-  tabs: TabState[];
-  activeTab: string | null;
-  onSelectTab: (id: string) => void;
-  onCloseTab: (id: string) => void;
-  onNewTab: () => void;
-  onReset: () => void;
-  followMode: boolean;
-  onToggleFollowMode: () => void;
-  isFullscreen: boolean;
-  onToggleFullscreen: () => void;
-}) {
+}: TabBarProps) {
   return (
     <div
       style={{
@@ -282,13 +282,13 @@ function TabBar({
           const isActive = tab.sessionId === activeTab;
           const displayName = tab.style.name || tab.title || tab.label;
           const hasCustomColor = !!tab.style.color;
-          const defaultBg = isActive ? "#1e1e1e" : "transparent";
-          const tabBg = hasCustomColor
-            ? tab.style.color
-            : defaultBg;
-          const tabColor = hasCustomColor
-            ? "#fff"
-            : isActive ? "#d4d4d4" : "#888";
+
+          let tabBg = isActive ? "#1e1e1e" : "transparent";
+          let tabColor = isActive ? "#d4d4d4" : "#888";
+          if (hasCustomColor) {
+            tabBg = tab.style.color;
+            tabColor = "#fff";
+          }
           return (
             <div
               key={tab.sessionId}
@@ -379,12 +379,14 @@ function TabBar({
   );
 }
 
-function ToolbarButton({ onClick, title, style, children }: {
+interface ToolbarButtonProps {
   onClick: () => void;
   title: string;
   style?: React.CSSProperties;
   children: React.ReactNode;
-}) {
+}
+
+function ToolbarButton({ onClick, title, style, children }: ToolbarButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -403,22 +405,20 @@ function ToolbarButton({ onClick, title, style, children }: {
         ...style,
       }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "#d4d4d4")}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "#888")}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = style?.color ?? "#888")}
     >
       {children}
     </button>
   );
 }
 
-function TerminalPane({
-  app,
-  sessionId,
-  visible,
-}: {
+interface TerminalPaneProps {
   app: App;
   sessionId: string;
   visible: boolean;
-}) {
+}
+
+function TerminalPane({ app, sessionId, visible }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -440,11 +440,9 @@ function TerminalPane({
     terminal.loadAddon(fitAddon);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-    terminalInstances.set(sessionId, terminal);
 
-    // --- Poll: drain output buffer and write to xterm ---
-    // Returns true if data was received, false if empty, null on error
-    const poll_read = async (): Promise<boolean | null> => {
+    /** Drains the output buffer. Returns true if data received, false if empty, null on error. */
+    const pollRead = async (): Promise<boolean | null> => {
       try {
         const result = await app.callServerTool({
           name: "terminal-write",
@@ -462,7 +460,6 @@ function TerminalPane({
       return false;
     };
 
-    // --- Batched writes: coalesce keystrokes, fire-and-forget ---
     let writeBuf = "";
     let flushScheduled = false;
     let writeInFlight = false;
@@ -510,18 +507,19 @@ function TerminalPane({
     };
     window.addEventListener("resize", handleResize);
 
-    // --- Background poll for async output ---
     const POLL_ACTIVE = 16;
     const POLL_IDLE = 400;
     let timeoutId: ReturnType<typeof setTimeout>;
     let consecutiveErrors = 0;
     const poll = async () => {
-      const hadData = await poll_read();
+      const hadData = await pollRead();
       if (hadData === null) {
-        if (++consecutiveErrors >= 5) return; // stop polling for dead sessions
-      } else {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) return; // stop polling for dead sessions
+      } else if (hadData) {
         consecutiveErrors = 0;
       }
+      // Don't reset error count on empty responses — only on actual data
       timeoutId = setTimeout(poll, hadData ? POLL_ACTIVE : POLL_IDLE);
     };
     poll();
@@ -530,7 +528,6 @@ function TerminalPane({
       clearTimeout(timeoutId);
       clearTimeout(resizeTimer);
       window.removeEventListener("resize", handleResize);
-      terminalInstances.delete(sessionId);
       terminal.dispose();
     };
   }, [app, sessionId]);

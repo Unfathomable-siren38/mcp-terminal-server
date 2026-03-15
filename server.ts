@@ -101,9 +101,13 @@ function spawnTerminal(command?: string, style?: Partial<TabStyle>, cwd?: string
     cols: 80,
     rows: 24,
     cwd: resolvedCwd,
-    env: Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-    ),
+    env: {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      ),
+      LANG: process.env.LANG || "en_US.UTF-8",
+      LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
+    },
   });
 
   const session: TerminalSession = {

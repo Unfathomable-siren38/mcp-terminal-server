@@ -1,7 +1,9 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -37,8 +39,15 @@ function TerminalApp() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [followMode, setFollowMode] = useState(true);
   const followModeRef = useRef(true);
+  const lastManualSelectRef = useRef(0);
   const [displayHeight, setDisplayHeight] = useState<number>(500);
   const [displayWidth, setDisplayWidth] = useState<number | null>(null);
+
+  // Only follow-mode switch if user hasn't manually selected a tab recently
+  const FOLLOW_GRACE_MS = 500;
+  const shouldFollow = useCallback(() => {
+    return followModeRef.current && (Date.now() - lastManualSelectRef.current > FOLLOW_GRACE_MS);
+  }, []);
 
   const { app, error } = useApp({
     appInfo: { name: "Terminal", version: "1.0.0" },
@@ -70,7 +79,7 @@ function TerminalApp() {
         });
         // Always activate if no current tab (initial open), otherwise respect follow mode
         setActiveTab((current) => {
-          if (!current || followModeRef.current) return newSessions[0].sessionId;
+          if (!current || shouldFollow()) return newSessions[0].sessionId;
           return current;
         });
       };
@@ -81,7 +90,10 @@ function TerminalApp() {
   useEffect(() => {
     if (!app) return;
 
+    let syncInFlight = false;
     const syncSessions = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
       try {
         const result = await app.callServerTool({
           name: "terminal-list",
@@ -116,7 +128,7 @@ function TerminalApp() {
         });
 
         // Follow mode: switch to the tab the AI last wrote to or created
-        if (listData.pendingFocus && followModeRef.current) {
+        if (listData.pendingFocus && shouldFollow()) {
           setActiveTab(listData.pendingFocus);
         } else {
           // If active tab was removed, switch to first available
@@ -130,6 +142,8 @@ function TerminalApp() {
         }
       } catch {
         // ignore polling errors
+      } finally {
+        syncInFlight = false;
       }
     };
 
@@ -218,7 +232,7 @@ function TerminalApp() {
       <TabBar
         tabs={tabs}
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={(id) => { lastManualSelectRef.current = Date.now(); setActiveTab(id); }}
         onCloseTab={handleCloseTab}
         onNewTab={handleNewTab}
         onReset={handleReset}
@@ -558,12 +572,25 @@ function TerminalPane({ app, sessionId, visible }: TerminalPaneProps) {
     if (!openedRef.current) {
       openedRef.current = true;
       terminal.open(containerRef.current);
+      // WebGL renderer enables customGlyphs (pixel-perfect block/box chars, no row gaps)
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        terminal.loadAddon(webgl);
+      } catch {
+        terminal.loadAddon(new CanvasAddon());
+      }
     }
 
-    // Always re-fit when becoming visible (handles tab switches + initial open)
-    requestAnimationFrame(() => {
+    // Double-rAF ensures layout has settled after display:none → display:block
+    // then re-fit and trigger a SIGWINCH so the running program redraws
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       fitAddon?.fit();
-    });
+      app.callServerTool({
+        name: "terminal-refresh",
+        arguments: { sessionId },
+      }).catch(() => {});
+    }));
   }, [visible]);
 
   return (

